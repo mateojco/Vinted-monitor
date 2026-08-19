@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Descargar el repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Preparar Python
         uses: actions/setup-python@v5
@@ -48,6 +48,11 @@ jobs:
       - name: Anotar que ya se ha enviado hoy
         if: success()
         run: |
+          # En las ejecuciones de prueba no se crea estado.json: no hay nada que guardar.
+          if [ ! -f estado.json ]; then
+            echo "Ejecucion de prueba: no hay estado que guardar."
+            exit 0
+          fi
           git config user.name "vinted-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add estado.json

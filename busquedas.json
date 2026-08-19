@@ -1,0 +1,14 @@
+{
+  "_ayuda": "Ponle el nombre que quieras a cada busqueda. En 'url' pega la direccion que copias de la barra del navegador despues de aplicar los filtros en Vinted (marca, talla, estado, precio...). Puedes tener las que quieras: copia el bloque y separalo con una coma.",
+
+  "busquedas": [
+    {
+      "nombre": "Ejemplo - Nike talla M",
+      "url": "https://www.vinted.es/catalog?search_text=sudadera&brand_ids[]=53&size_ids[]=5&status_ids[]=6&price_to=30"
+    },
+    {
+      "nombre": "Ejemplo - Otra busqueda",
+      "url": "https://www.vinted.es/catalog?search_text=zapatillas&price_to=50"
+    }
+  ]
+}

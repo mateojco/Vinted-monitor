@@ -1,0 +1,60 @@
+name: Monitor Vinted
+
+on:
+  schedule:
+    # Los horarios de GitHub van en UTC. Espana esta en UTC+2 (verano) o UTC+1
+    # (invierno), asi que se lanzan cuatro intentos y el propio script decide:
+    # solo actua si en Madrid son las 23:xx, y solo envia un mensaje al dia.
+    - cron: "40 21 * * *"   # 23:40 en verano
+    - cron: "52 21 * * *"   # 23:52 en verano (reintento)
+    - cron: "40 22 * * *"   # 23:40 en invierno
+    - cron: "52 22 * * *"   # 23:52 en invierno (reintento)
+  workflow_dispatch:
+    inputs:
+      forzar:
+        description: "Probar ahora, sin esperar a las 23:xx"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monitor-vinted
+  cancel-in-progress: false
+
+jobs:
+  resumen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar el monitor
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORZAR: ${{ (github.event_name == 'workflow_dispatch' && inputs.forzar) && '1' || '0' }}
+        run: python vinted_monitor.py
+
+      - name: Anotar que ya se ha enviado hoy
+        if: success()
+        run: |
+          git config user.name "vinted-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add estado.json
+          if git diff --staged --quiet; then
+            echo "Sin cambios."
+          else
+            git commit -m "Resumen enviado $(date -u '+%Y-%m-%d')"
+            git pull --rebase --autostash || true
+            git push || echo "No he podido guardar la marca."
+          fi

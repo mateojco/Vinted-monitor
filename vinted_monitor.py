@@ -61,6 +61,9 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 # Poner a "1" para probar a cualquier hora (variable FORZAR en el workflow).
 FORZAR = os.environ.get("FORZAR", "").strip() == "1"
 
+# Diagnostico: codigos HTTP devueltos por Vinted en la busqueda actual.
+CODIGOS_HTTP = []
+
 
 # --------------------------------------------------------------------------
 # Utilidades
@@ -200,6 +203,8 @@ def consultar_pagina(sesion, dominio, parametros, pagina):
             time.sleep(4 * intento)
             continue
 
+        CODIGOS_HTTP.append(r.status_code)
+
         if r.status_code == 200:
             try:
                 return r.json().get("items", [])
@@ -287,7 +292,10 @@ def recoger_de_hoy(busqueda, inicio_del_dia):
     nombre = busqueda.get("nombre", "Sin nombre")
     url = busqueda.get("url", "")
     if not url:
-        return [], True, False
+        return {
+            "nombre": nombre, "articulos": [], "error": True, "agotado": False,
+            "examinados": 0, "sin_fecha": 0, "codigos": [],
+        }
 
     dominio, parametros = parsear_url_busqueda(url)
     sesion = crear_sesion(dominio)
@@ -295,10 +303,12 @@ def recoger_de_hoy(busqueda, inicio_del_dia):
 
     log("  '{}'".format(nombre))
 
+    del CODIGOS_HTTP[:]
     encontrados = {}
     hubo_error = False
     se_agoto = False
     sin_fecha = 0
+    examinados = 0
 
     for pagina in range(1, tope_paginas + 1):
         articulos = consultar_pagina(sesion, dominio, parametros, pagina)
@@ -309,6 +319,7 @@ def recoger_de_hoy(busqueda, inicio_del_dia):
         if not articulos:
             break
 
+        examinados += len(articulos)
         de_hoy_en_pagina = 0
         for item in articulos:
             momento = momento_publicacion(item)
@@ -341,8 +352,13 @@ def recoger_de_hoy(busqueda, inicio_del_dia):
         log("    ({} articulos sin fecha legible, descartados)".format(sin_fecha))
 
     lista = sorted(encontrados.values(), key=lambda a: a["hora"], reverse=True)
-    log("    total de hoy: {}".format(len(lista)))
-    return lista, hubo_error, se_agoto
+    log("    total de hoy: {} (de {} anuncios revisados)".format(len(lista), examinados))
+    log("    codigos HTTP recibidos: {}".format(sorted(set(CODIGOS_HTTP)) or "ninguno"))
+    return {
+        "nombre": nombre, "articulos": lista, "error": hubo_error,
+        "agotado": se_agoto, "examinados": examinados, "sin_fecha": sin_fecha,
+        "codigos": sorted(set(CODIGOS_HTTP)),
+    }
 
 
 # --------------------------------------------------------------------------
@@ -378,8 +394,29 @@ def construir_mensaje(resultados, fecha_texto):
         if len(articulos) > MAX_ENLACES:
             lineas.append("   ... y {} mas".format(len(articulos) - MAX_ENLACES))
 
+        if not articulos and resultado.get("examinados"):
+            lineas.append(
+                "   <i>Revisados {} anuncios; ninguno publicado hoy.</i>".format(
+                    resultado["examinados"]
+                )
+            )
+        if not resultado.get("examinados"):
+            lineas.append(
+                "   <i>[!] Vinted no ha devuelto ningun anuncio "
+                "(codigos: {}). Revisa la URL o puede ser un bloqueo.</i>".format(
+                    ", ".join(str(c) for c in resultado.get("codigos", [])) or "sin respuesta"
+                )
+            )
+        if resultado.get("sin_fecha"):
+            lineas.append(
+                "   <i>[!] {} anuncios sin fecha legible.</i>".format(resultado["sin_fecha"])
+            )
         if resultado["error"]:
-            lineas.append("   <i>[!] Vinted no ha respondido bien. Puede faltar algo.</i>")
+            lineas.append(
+                "   <i>[!] Vinted no ha respondido bien (codigos: {}).</i>".format(
+                    ", ".join(str(c) for c in resultado.get("codigos", [])) or "sin respuesta"
+                )
+            )
         if resultado["agotado"]:
             lineas.append(
                 "   <i>[!] Tope de paginas alcanzado. Afina los filtros "
@@ -418,15 +455,7 @@ def main():
 
     resultados = []
     for busqueda in configuracion["busquedas"]:
-        articulos, hubo_error, se_agoto = recoger_de_hoy(busqueda, inicio_del_dia)
-        resultados.append(
-            {
-                "nombre": busqueda.get("nombre", "Sin nombre"),
-                "articulos": articulos,
-                "error": hubo_error,
-                "agotado": se_agoto,
-            }
-        )
+        resultados.append(recoger_de_hoy(busqueda, inicio_del_dia))
         time.sleep(random.uniform(3.0, 5.0))
 
     mensaje = construir_mensaje(resultados, ahora.strftime("%d/%m/%Y"))
